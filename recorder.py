@@ -14,7 +14,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 # Dynamic Configuration
 CHANNEL_HANDLE = os.environ.get("CHANNEL_HANDLE", sys.argv[1] if len(sys.argv) > 1 else "kalkilive")
-HOURS = float(os.environ.get("HOURS", "4.5"))
+HOURS = float(os.environ.get("HOURS", "5.0"))
 OUT_DIR = os.environ.get("OUT_DIR", "./streams")
 COOKIES_FILE = os.environ.get("COOKIES_FILE", "./cookies.txt")
 REQUIRE_COOKIES = True
