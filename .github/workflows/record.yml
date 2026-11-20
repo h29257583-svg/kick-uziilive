@@ -6,7 +6,7 @@ on:
       hours:
         description: 'Recording duration per shift in hours (default 4.5)'
         required: false
-        default: '4.5'
+        default: '5.0'
         type: string
       shifts_left:
         description: 'Continuation shifts after this one (default 2 = 3 shifts total / ~13h)'
@@ -72,7 +72,7 @@ jobs:
         id: run_recorder
         env:
           CHANNEL_HANDLE: ${{ github.event.inputs.channel || vars.CHANNEL_HANDLE || 'uziilive' }}
-          HOURS: ${{ github.event.inputs.hours || '4.5' }}
+          HOURS: ${{ github.event.inputs.hours || '5.0' }}
           OUT_DIR: './streams'
           COOKIES_FILE: './cookies.txt'
         run: |
@@ -141,7 +141,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SHIFTS_LEFT: ${{ github.event.inputs.shifts_left || '2' }}
           ALWAYS_CONTINUE: ${{ github.event.inputs.always_continue || 'true' }}
-          HOURS: ${{ github.event.inputs.hours || '4.5' }}
+          HOURS: ${{ github.event.inputs.hours || '5.0' }}
           CHANNEL: ${{ github.event.inputs.channel || vars.CHANNEL_HANDLE || '' }}
         run: |
           REMAINING=$(( SHIFTS_LEFT - 1 ))
