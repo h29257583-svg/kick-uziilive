@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       hours:
-        description: 'Recording duration per shift in hours (default 4.5)'
+        description: 'Recording duration per shift in hours (default 5.0)'
         required: false
         default: '5.0'
         type: string
       shifts_left:
-        description: 'Continuation shifts after this one (default 2 = 3 shifts total / ~13h)'
+        description: 'Continuation shifts after this one (default 2 = 3 shifts total / ~15h)'
         required: false
         default: '2'
         type: string
@@ -73,11 +73,64 @@ jobs:
         env:
           CHANNEL_HANDLE: ${{ github.event.inputs.channel || vars.CHANNEL_HANDLE || 'uziilive' }}
           HOURS: ${{ github.event.inputs.hours || '5.0' }}
+          SHIFTS_LEFT: ${{ github.event.inputs.shifts_left || '2' }}
+          ALWAYS_CONTINUE: ${{ github.event.inputs.always_continue || 'true' }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GH_FALLBACK_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           OUT_DIR: './streams'
           COOKIES_FILE: './cookies.txt'
         run: |
-          echo "Starting Kick recorder for channel: $CHANNEL_HANDLE (Duration: ${HOURS}h)"
+          echo "Starting Kick recorder for channel: $CHANNEL_HANDLE (Duration: ${HOURS}h, Shifts left: $SHIFTS_LEFT)"
           python -u recorder.py
+
+      - name: Dispatch Next Continuation Shift (Fallback if prewarm missed)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GH_FALLBACK_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHIFTS_LEFT: ${{ github.event.inputs.shifts_left || '2' }}
+          ALWAYS_CONTINUE: ${{ github.event.inputs.always_continue || 'true' }}
+          HOURS: ${{ github.event.inputs.hours || '5.0' }}
+          CHANNEL: ${{ github.event.inputs.channel || vars.CHANNEL_HANDLE || '' }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          NEED_DISPATCH=$(python3 - <<'PY'
+          import glob, json, os
+          dispatched = False
+          for p in glob.glob("./streams/*_summary.json"):
+              try:
+                  d = json.loads(open(p, encoding="utf-8").read())
+                  dispatched = dispatched or bool(d.get("continuation_dispatched"))
+              except Exception:
+                  pass
+          print("false" if dispatched else "true")
+          PY
+          )
+          REMAINING=$(( SHIFTS_LEFT - 1 ))
+          if [ "$NEED_DISPATCH" == "true" ] && [ "$REMAINING" -ge 0 ] && [ "$ALWAYS_CONTINUE" == "true" ]; then
+            echo "Prewarm was not triggered in recorder.py - executing immediate fallback dispatch..."
+            if ! gh workflow run record.yml \
+              --repo "$GITHUB_REPOSITORY" \
+              --ref "$GITHUB_REF_NAME" \
+              -f hours="$HOURS" \
+              -f shifts_left="$REMAINING" \
+              -f always_continue="true" \
+              -f channel="$CHANNEL" 2>/dev/null; then
+              GH_TOKEN="${GH_FALLBACK_TOKEN:-$GH_TOKEN}" gh workflow run record.yml \
+                --repo "$GITHUB_REPOSITORY" \
+                --ref "$GITHUB_REF_NAME" \
+                -f hours="$HOURS" \
+                -f shifts_left="$REMAINING" \
+                -f always_continue="true" \
+                -f channel="$CHANNEL" || true
+            fi
+            echo "Fallback dispatch completed successfully!"
+          else
+            echo "Continuation already dispatched during prewarm or no shifts remaining."
+          fi
 
       - name: Upload Recorded Streams to Gofile.io
         if: always()
@@ -134,27 +187,3 @@ jobs:
             ./streams/*.json
           retention-days: 7
           if-no-files-found: ignore
-
-      - name: Dispatch Next Continuation Shift
-        if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHIFTS_LEFT: ${{ github.event.inputs.shifts_left || '2' }}
-          ALWAYS_CONTINUE: ${{ github.event.inputs.always_continue || 'true' }}
-          HOURS: ${{ github.event.inputs.hours || '5.0' }}
-          CHANNEL: ${{ github.event.inputs.channel || vars.CHANNEL_HANDLE || '' }}
-        run: |
-          REMAINING=$(( SHIFTS_LEFT - 1 ))
-          if [ "$REMAINING" -ge 0 ] && [ "$ALWAYS_CONTINUE" == "true" ]; then
-            echo "Chaining next shift (${REMAINING} shifts left)..."
-            gh workflow run record.yml \
-              --repo "$GITHUB_REPOSITORY" \
-              --ref "$GITHUB_REF_NAME" \
-              -f hours="$HOURS" \
-              -f shifts_left="$REMAINING" \
-              -f always_continue="true" \
-              -f channel="$CHANNEL"
-            echo "Next shift dispatched successfully!"
-          else
-            echo "No more shifts remaining or continuation disabled."
-          fi
